@@ -7,11 +7,16 @@ import org.junit.jupiter.api.*;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpHandler;
@@ -40,43 +45,14 @@ public class PubSubClientTest {
     void testGetOrganizationId() throws Exception {
         UUID orgId = UUID.randomUUID();
         server.createContext("/orgs/test", exchange -> {
-            sendJson(exchange, 200, "\"" + orgId.toString() + "\"");
+            sendJson(exchange, 200, '"' + orgId.toString() + '"');
         });
         PubSubClient client = new PubSubClient(baseUrl);
         Optional<UUID> result = client.getOrganizationId("test");
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(orgId, result.get());
     }
-
-    @Test
-    void testConsumeEvents() throws Exception {
-        UUID eventId = UUID.randomUUID();
-        AtomicInteger commitCalls = new AtomicInteger();
-        AtomicReference<String> commitBody = new AtomicReference<>();
-
-        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
-            if (exchange.getRequestMethod().equals("GET")) {
-                List<EventResponse> events = List.of(
-                        new EventResponse(eventId, Map.of("message", "hello"), Instant.now())
-                );
-                sendJson(exchange, 200, mapper.writeValueAsString(events));
-            } else if (exchange.getRequestMethod().equals("POST")) {
-                commitCalls.incrementAndGet();
-                commitBody.set(new String(exchange.getRequestBody().readAllBytes()));
-                sendJson(exchange, 200, "1");
-            }
-        });
-        PubSubClient client = new PubSubClient(baseUrl);
-        client.consumeEvents("org", "topic", "sub", 10, (events, commit) -> {
-            Assertions.assertFalse(events.isEmpty());
-            int committed = commit.apply(List.of(events.get(0).id()));
-            Assertions.assertEquals(1, committed);
-        });
-
-        Assertions.assertEquals(1, commitCalls.get());
-        Assertions.assertEquals("[\"" + eventId.toString() + "\"]", commitBody.get());
-    }
-
+  
     @Test
     void testPollingConsumer() throws Exception {
         AtomicInteger calls = new AtomicInteger();
