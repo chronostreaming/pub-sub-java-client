@@ -56,8 +56,7 @@ public class PubSubClientTest {
         server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
             if (exchange.getRequestMethod().equals("GET")) {
                 List<EventResponse> events = List.of(
-                        new EventResponse(UUID.randomUUID(), Map.of("message", "hello"), Instant.now())
-                );
+                        new EventResponse(UUID.randomUUID(), Map.of("message", "hello"), Instant.now()));
                 sendJson(exchange, 200, mapper.writeValueAsString(events));
             } else if (exchange.getRequestMethod().equals("POST")) {
                 sendJson(exchange, 200, "1");
@@ -66,7 +65,7 @@ public class PubSubClientTest {
         PubSubClient client = new PubSubClient(baseUrl);
         client.consumeEvents("org", "topic", "sub", 10, (events, commit) -> {
             Assertions.assertFalse(events.isEmpty());
-            int committed = commit.apply(List.of(events.getFirst().id()));
+            int committed = commit.apply(List.of(events.get(0).id()));
             Assertions.assertEquals(1, committed);
         });
     }
