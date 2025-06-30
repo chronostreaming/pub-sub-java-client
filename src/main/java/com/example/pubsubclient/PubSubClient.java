@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpClient.Version;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
@@ -20,7 +21,7 @@ public class PubSubClient {
 
     public PubSubClient(String baseUrl) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        this.httpClient = HttpClient.newHttpClient();
+        this.httpClient = HttpClient.newBuilder().version(Version.HTTP_1_1).build();
     }
 
     public void createOrganization(String name) throws IOException, InterruptedException {
@@ -32,7 +33,8 @@ public class PubSubClient {
     }
 
     public Optional<UUID> getOrganizationId(String orgName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/orgs/" + orgName)).GET().build());
+        HttpResponse<String> resp = send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/orgs/" + orgName)).GET().build());
         if (resp.statusCode() == 404) {
             return Optional.empty();
         }
@@ -52,7 +54,8 @@ public class PubSubClient {
     }
 
     public Topic getTopic(String orgName, String topicName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName)).GET().build());
+        HttpResponse<String> resp = send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName)).GET().build());
         if (resp.statusCode() == 404) {
             throw new RuntimeException("Topic or organization not found");
         }
@@ -63,7 +66,8 @@ public class PubSubClient {
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName)).DELETE().build());
     }
 
-    public void createSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
+    public void createSubscription(String orgName, String topicName, String subscriptionName)
+            throws IOException, InterruptedException {
         Map<String, String> body = Map.of("name", subscriptionName);
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions"))
                 .header("Content-Type", "application/json")
@@ -71,41 +75,62 @@ public class PubSubClient {
                 .build());
     }
 
-    public Subscription getSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName)).GET().build());
+    public Subscription getSubscription(String orgName, String topicName, String subscriptionName)
+            throws IOException, InterruptedException {
+        HttpResponse<String> resp = send(HttpRequest
+                .newBuilder(URI.create(
+                        baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName))
+                .GET()
+                .build());
         if (resp.statusCode() == 404) {
             throw new RuntimeException("Subscription, topic or organization not found");
         }
         return mapper.readValue(resp.body(), Subscription.class);
     }
 
-    public void deleteSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName)).DELETE().build());
+    public void deleteSubscription(String orgName, String topicName, String subscriptionName)
+            throws IOException, InterruptedException {
+        send(HttpRequest
+                .newBuilder(URI.create(
+                        baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName))
+                .DELETE().build());
     }
 
-    public int publishEvents(String orgName, String topicName, List<EventPublishRequest<?>> events) throws IOException, InterruptedException {
+    public int publishEvents(String orgName, String topicName, List<EventPublishRequest<?>> events)
+            throws IOException, InterruptedException {
         String body = mapper.writeValueAsString(events);
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/events"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build());
+        HttpResponse<String> resp = send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/events"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                        .build());
         return Integer.parseInt(resp.body());
     }
 
-    public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize) throws IOException, InterruptedException {
-        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events?batchSize=%d", baseUrl, orgName, topicName, subscriptionName, batchSize);
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url)).GET().build());
+    public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize)
+            throws IOException, InterruptedException {
+        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events?batchSize=%d", baseUrl, orgName, topicName,
+                subscriptionName, batchSize);
+
+        HttpResponse<String> resp = send(
+                HttpRequest.newBuilder(URI.create(url))
+                        .GET()
+                        .version(Version.HTTP_1_1)
+                        .header("Content-Type", "application/json").build());
         if (resp.statusCode() == 204) {
             return List.of();
         }
         if (resp.statusCode() == 404) {
             throw new RuntimeException("Subscription, topic or organization not found");
         }
-        return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {});
+        return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {
+        });
     }
 
-    public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds) throws IOException, InterruptedException {
-        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events", baseUrl, orgName, topicName, subscriptionName);
+    public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds)
+            throws IOException, InterruptedException {
+        String url = String.format("%s/%s/topics/%s/subscriptions/%s/event-commits", baseUrl, orgName, topicName,
+                subscriptionName);
         String body = mapper.writeValueAsString(eventIds);
         HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
@@ -114,7 +139,8 @@ public class PubSubClient {
         return Integer.parseInt(resp.body());
     }
 
-    public void consumeEvents(String org, String topic, String sub, int batchSize, EventsHandler handler) throws Exception {
+    public void consumeEvents(String org, String topic, String sub, int batchSize, EventsHandler handler)
+            throws Exception {
         List<EventResponse> events = readEvents(org, topic, sub, batchSize);
         if (events.isEmpty()) {
             return;
@@ -135,5 +161,9 @@ public class PubSubClient {
             throw new RuntimeException("Request failed with status code " + resp.statusCode());
         }
         return resp;
+    }
+
+    public void close() {
+        httpClient.close();
     }
 }

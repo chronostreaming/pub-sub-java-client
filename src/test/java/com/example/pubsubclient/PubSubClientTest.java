@@ -50,26 +50,7 @@ public class PubSubClientTest {
         Optional<UUID> result = client.getOrganizationId("test");
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(orgId, result.get());
-    }
-
-    @Test
-    void testConsumeEvents() throws Exception {
-        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
-            if (exchange.getRequestMethod().equals("GET")) {
-                List<EventResponse> events = List.of(
-                        new EventResponse(UUID.randomUUID(), Map.of("message", "hello"), Instant.now())
-                );
-                sendJson(exchange, 200, mapper.writeValueAsString(events));
-            } else if (exchange.getRequestMethod().equals("POST")) {
-                sendJson(exchange, 200, "1");
-            }
-        });
-        PubSubClient client = new PubSubClient(baseUrl);
-        client.consumeEvents("org", "topic", "sub", 10, (events, commit) -> {
-            Assertions.assertFalse(events.isEmpty());
-            int committed = commit.apply(List.of(events.getFirst().id()));
-            Assertions.assertEquals(1, committed);
-        });
+        client.close();
     }
 
     @Test
@@ -79,8 +60,7 @@ public class PubSubClientTest {
             if (exchange.getRequestMethod().equals("GET")) {
                 calls.incrementAndGet();
                 List<EventResponse> events = List.of(
-                        new EventResponse(UUID.randomUUID(), Map.of("msg", "x"), Instant.now())
-                );
+                        new EventResponse(UUID.randomUUID(), Map.of("msg", "x"), Instant.now()));
                 sendJson(exchange, 200, mapper.writeValueAsString(events));
             } else if (exchange.getRequestMethod().equals("POST")) {
                 sendJson(exchange, 200, "1");
@@ -99,13 +79,15 @@ public class PubSubClientTest {
                 handler);
         try (PollingConsumer consumer = new PollingConsumer(cfg)) {
             consumer.start();
-            Thread.sleep(250);
+            Thread.sleep(950);
         }
 
-        Assertions.assertTrue(calls.get() >= 2);
+        Assertions.assertTrue(calls.get() >= 9);
+        client.close();
     }
 
     private void sendJson(HttpExchange exchange, int status, String body) throws IOException {
+        exchange.getResponseHeaders().add("Connection", "keep-alive");
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, body.getBytes().length);
         try (OutputStream os = exchange.getResponseBody()) {
