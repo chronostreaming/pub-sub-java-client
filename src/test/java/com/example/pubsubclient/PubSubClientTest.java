@@ -61,11 +61,21 @@ public class PubSubClientTest {
         server.createContext("/org/topics/topic/subscriptions/sub2/events", exchange -> {
             if (exchange.getRequestMethod().equals("GET")) {
                 calls.incrementAndGet();
-                List<EventResponse> events = List.of(
-                        new EventResponse(UUID.randomUUID(), Map.of("msg", "x"), Instant.now())
-                );
-                sendJson(exchange, 200, mapper.writeValueAsString(events));
-            } else if (exchange.getRequestMethod().equals("POST")) {
+                var message = """
+                [{
+                    "id": "9f320609-0405-44a3-9042-953a353aa40c",
+                    "data": {
+                        "message": : "aaaaa"
+                    },
+                    "createdAt": "2025-06-30T09:54:22+00:00"
+                }]
+                """;
+
+                sendJson(exchange, 200, message);
+            }
+        });
+        server.createContext("/org/topics/topic/subscriptions/sub2/event-commits", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
                 commitCalls.incrementAndGet();
                 sendJson(exchange, 200, "1");
             }
@@ -79,11 +89,11 @@ public class PubSubClientTest {
                 "topic",
                 "sub2",
                 1,
-                100L,
+                2000L,
                 handler);
         try (PollingConsumer consumer = new PollingConsumer(cfg)) {
             consumer.start();
-            Thread.sleep(250);
+            Thread.sleep(1000);
         }
 
         Assertions.assertTrue(calls.get() >= 2);
@@ -93,6 +103,7 @@ public class PubSubClientTest {
     private void sendJson(HttpExchange exchange, int status, String body) throws IOException {
         // fully consume the request body to avoid connection reset issues
         exchange.getRequestBody().readAllBytes();
+        exchange.getResponseHeaders().set("Connection", "close");
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, body.getBytes().length);
         try (OutputStream os = exchange.getResponseBody()) {

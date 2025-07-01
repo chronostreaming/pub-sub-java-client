@@ -94,7 +94,10 @@ public class PubSubClient {
 
     public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize) throws IOException, InterruptedException {
         String url = String.format("%s/%s/topics/%s/subscriptions/%s/events?batchSize=%d", baseUrl, orgName, topicName, subscriptionName, batchSize);
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url)).GET().build());
+        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url))
+            .GET()
+            .header("Content-Type", "application/json")
+            .build());
         if (resp.statusCode() == 204) {
             return List.of();
         }
@@ -105,7 +108,7 @@ public class PubSubClient {
     }
 
     public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds) throws IOException, InterruptedException {
-        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events", baseUrl, orgName, topicName, subscriptionName);
+        String url = String.format("%s/%s/topics/%s/subscriptions/%s/event-commits", baseUrl, orgName, topicName, subscriptionName);
         String body = mapper.writeValueAsString(eventIds);
         HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
