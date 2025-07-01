@@ -1,5 +1,10 @@
 package com.example.pubsubclient;
 
+import com.example.pubsubclient.model.EventResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.junit.jupiter.api.*;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -26,7 +31,8 @@ import com.sun.net.httpserver.HttpServer;
 public class PubSubClientTest {
     private HttpServer server;
     private String baseUrl;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new JavaTime());
 
     @BeforeAll
     void setup() throws IOException {
