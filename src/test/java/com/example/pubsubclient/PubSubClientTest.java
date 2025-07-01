@@ -2,6 +2,7 @@ package com.example.pubsubclient;
 
 import com.example.pubsubclient.model.EventResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;
@@ -26,7 +27,8 @@ import com.sun.net.httpserver.HttpExchange;
 public class PubSubClientTest {
     private HttpServer server;
     private String baseUrl;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
 
     @BeforeAll
     void setup() throws IOException {
@@ -64,7 +66,7 @@ public class PubSubClientTest {
                 [{
                     "id": "9f320609-0405-44a3-9042-953a353aa40c",
                     "data": {
-                        "message": : "aaaaa"
+                        "message": "aaaaa"
                     },
                     "createdAt": "2025-06-30T09:54:22+00:00"
                 }]
