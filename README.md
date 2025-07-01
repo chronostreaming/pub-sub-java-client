@@ -74,6 +74,35 @@ client.consumeEvents("my-org", "orders", "processor", 100, (events, commit) -> {
 });
 ```
 
+### Periodic Consumption
+
+To continuously poll for events at a fixed interval, use `PollingConsumer`.
+It wraps the client and repeatedly invokes `consumeEvents` in a background
+thread.
+
+```java
+EventsHandler handler = (events, commit) -> {
+    // process events then commit
+    List<UUID> ids = events.stream().map(EventResponse::id).toList();
+    commit.apply(ids);
+};
+
+PollingConsumerConfig cfg = new PollingConsumerConfig(
+        client,
+        "my-org",
+        "orders",
+        "processor",
+        100,
+        1000L, // poll every second
+        handler);
+
+PollingConsumer consumer = new PollingConsumer(cfg);
+consumer.start();
+
+// later when finished
+consumer.close();
+```
+
 ### Cleaning Up
 
 ```java

@@ -1,24 +1,26 @@
 package com.example.pubsubclient;
 
-import com.example.pubsubclient.model.EventResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.*;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Instant;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Executors;
-import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpHandler;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+
+import com.example.pubsubclient.model.EventResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PubSubClientTest {
@@ -43,7 +45,7 @@ public class PubSubClientTest {
     void testGetOrganizationId() throws Exception {
         UUID orgId = UUID.randomUUID();
         server.createContext("/orgs/test", exchange -> {
-            sendJson(exchange, 200, '"' + orgId.toString() + '"');
+            sendJson(exchange, 200, "\"" + orgId.toString() + "\"");
         });
         PubSubClient client = new PubSubClient(baseUrl);
         Optional<UUID> result = client.getOrganizationId("test");
@@ -51,30 +53,62 @@ public class PubSubClientTest {
         Assertions.assertEquals(orgId, result.get());
     }
 
+
     @Test
-    void testConsumeEvents() throws Exception {
-        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
+    void testPollingConsumer() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger commitCalls = new AtomicInteger();
+        server.createContext("/org/topics/topic/subscriptions/sub2/events", exchange -> {
             if (exchange.getRequestMethod().equals("GET")) {
-                List<EventResponse> events = List.of(
-                        new EventResponse(UUID.randomUUID(), Map.of("message", "hello"), Instant.now()));
-                sendJson(exchange, 200, mapper.writeValueAsString(events));
-            } else if (exchange.getRequestMethod().equals("POST")) {
+                calls.incrementAndGet();
+                var message = """
+                [{
+                    "id": "9f320609-0405-44a3-9042-953a353aa40c",
+                    "data": {
+                        "message": : "aaaaa"
+                    },
+                    "createdAt": "2025-06-30T09:54:22+00:00"
+                }]
+                """;
+
+                sendJson(exchange, 200, message);
+            }
+        });
+        server.createContext("/org/topics/topic/subscriptions/sub2/event-commits", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
+                commitCalls.incrementAndGet();
                 sendJson(exchange, 200, "1");
             }
         });
+
         PubSubClient client = new PubSubClient(baseUrl);
-        client.consumeEvents("org", "topic", "sub", 10, (events, commit) -> {
-            Assertions.assertFalse(events.isEmpty());
-            int committed = commit.apply(List.of(events.get(0).id()));
-            Assertions.assertEquals(1, committed);
-        });
+        EventsHandler handler = (events, commit) -> commit.apply(List.of(events.get(0).id()));
+        PollingConsumerConfig cfg = new PollingConsumerConfig(
+                client,
+                "org",
+                "topic",
+                "sub2",
+                1,
+                2000L,
+                handler);
+        try (PollingConsumer consumer = new PollingConsumer(cfg)) {
+            consumer.start();
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertTrue(calls.get() >= 2);
+        Assertions.assertEquals(calls.get(), commitCalls.get());
     }
 
     private void sendJson(HttpExchange exchange, int status, String body) throws IOException {
+        // fully consume the request body to avoid connection reset issues
+        exchange.getRequestBody().readAllBytes();
+        exchange.getResponseHeaders().set("Connection", "close");
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, body.getBytes().length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(body.getBytes());
         }
+        exchange.close();
     }
 }
