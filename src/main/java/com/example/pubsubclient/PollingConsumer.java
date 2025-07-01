@@ -20,7 +20,7 @@ public class PollingConsumer implements AutoCloseable {
     }
 
     /** Start polling if not already running. */
-    public synchronized void start() {
+    public void start() {
         if (future != null && !future.isCancelled()) {
             return;
         }
@@ -40,7 +40,7 @@ public class PollingConsumer implements AutoCloseable {
     }
 
     /** Stop polling. */
-    public synchronized void stop() {
+    public void stop() {
         if (future != null) {
             future.cancel(false);
             future = null;
