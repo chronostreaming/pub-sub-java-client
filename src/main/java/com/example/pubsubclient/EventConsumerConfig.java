@@ -1,11 +1,10 @@
 package com.example.pubsubclient;
 
 /**
- * Configuration for {@link PollingConsumer}. Encapsulates all parameters
+ * Configuration for {@link EventConsumer}. Encapsulates all parameters
  * required to start periodic event polling.
  */
-public record PollingConsumerConfig(
-        PubSubClient client,
+public record EventConsumerConfig(
         String org,
         String topic,
         String subscription,

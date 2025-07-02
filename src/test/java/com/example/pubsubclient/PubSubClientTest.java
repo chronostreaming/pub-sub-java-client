@@ -1,40 +1,27 @@
 package com.example.pubsubclient;
 
-import com.example.pubsubclient.model.EventResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.junit.jupiter.api.*;
-
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-import com.example.pubsubclient.model.EventResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.example.pubsubclient.exception.EventConsumerException;
+import static com.example.pubsubclient.TestUtils.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PubSubClientTest {
     private HttpServer server;
     private String baseUrl;
-    private final ObjectMapper mapper = new ObjectMapper()
-            .registerModule(new JavaTime());
 
-    @BeforeAll
+    @BeforeEach
     void setup() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.setExecutor(Executors.newSingleThreadExecutor());
@@ -42,79 +29,152 @@ public class PubSubClientTest {
         baseUrl = "http://localhost:" + server.getAddress().getPort();
     }
 
-    @AfterAll
+    @AfterEach
     void tearDown() {
-        server.stop(0);
+        server.stop(1);
     }
 
     @Test
-    void testGetOrganizationId() throws Exception {
-        UUID orgId = UUID.randomUUID();
-        server.createContext("/orgs/test", exchange -> {
-            sendJson(exchange, 200, "\"" + orgId.toString() + "\"");
-        });
-        PubSubClient client = new PubSubClient(baseUrl);
-        Optional<UUID> result = client.getOrganizationId("test");
-        Assertions.assertTrue(result.isPresent());
-        Assertions.assertEquals(orgId, result.get());
-    }
-
-
-    @Test
-    void testPollingConsumer() throws Exception {
-        AtomicInteger calls = new AtomicInteger();
-        AtomicInteger commitCalls = new AtomicInteger();
-        server.createContext("/org/topics/topic/subscriptions/sub2/events", exchange -> {
-            if (exchange.getRequestMethod().equals("GET")) {
-                calls.incrementAndGet();
-                var message = """
-                [{
-                    "id": "9f320609-0405-44a3-9042-953a353aa40c",
-                    "data": {
-                        "message": : "aaaaa"
-                    },
-                    "createdAt": "2025-06-30T09:54:22+00:00"
-                }]
-                """;
-
-                sendJson(exchange, 200, message);
+    void testPublishEventsSuccess() throws Exception {
+        server.createContext("/org/topics/topic/events", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
+                sendJson(exchange, 200, "2");
             }
         });
-        server.createContext("/org/topics/topic/subscriptions/sub2/event-commits", exchange -> {
+
+        PubSubClient client = new PubSubClient(baseUrl);
+        int result = client.publishEvents(
+                "org",
+                "topic",
+                List.of(new com.example.pubsubclient.model.EventPublishRequest<>("data")));
+
+        Assertions.assertEquals(2, result);
+    }
+
+    @Test
+    void testPublishEventsError() throws Exception {
+        server.createContext("/org/topics/topic/events", exchange -> {
             if (exchange.getRequestMethod().equals("POST")) {
-                commitCalls.incrementAndGet();
+                sendJson(exchange, 500, "error");
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+
+        Assertions.assertThrows(RuntimeException.class, () ->
+            client.publishEvents(
+                "org",
+                "topic",
+                List.of(new com.example.pubsubclient.model.EventPublishRequest<>("data"))));
+    }
+
+    @Test
+    void testReadEventsSuccess() throws Exception {
+        String msg = """
+            [{
+                "id": "%s",
+                "data": {"msg": "hello"},
+                "createdAt": "2025-07-01T00:00:00Z"
+            }]
+            """.formatted(UUID.randomUUID());
+        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) {
+                sendJson(exchange, 200, msg);
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+        var events = client.readEvents("org", "topic", "sub", 1);
+        Assertions.assertEquals(1, events.size());
+    }
+
+    @Test
+    void testReadEventsError() throws Exception {
+        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) {
+                sendJson(exchange, 500, "error");
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+
+        Assertions.assertThrows(RuntimeException.class, () ->
+            client.readEvents("org", "topic", "sub", 1));
+    }
+
+    @Test
+    void testCommitEventsSuccess() throws Exception {
+        server.createContext("/org/topics/topic/subscriptions/sub/event-commits", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
                 sendJson(exchange, 200, "1");
             }
         });
 
         PubSubClient client = new PubSubClient(baseUrl);
-        EventsHandler handler = (events, commit) -> commit.apply(List.of(events.get(0).id()));
-        PollingConsumerConfig cfg = new PollingConsumerConfig(
-                client,
+        int result = client.commitEvents(
                 "org",
                 "topic",
-                "sub2",
-                1,
-                2000L,
-                handler);
-        try (PollingConsumer consumer = new PollingConsumer(cfg)) {
-            consumer.start();
-            Thread.sleep(1000);
-        }
-
-        Assertions.assertTrue(calls.get() >= 2);
-        Assertions.assertEquals(calls.get(), commitCalls.get());
+                "sub",
+                List.of(UUID.randomUUID()));
+        Assertions.assertEquals(1, result);
     }
 
-    private void sendJson(HttpExchange exchange, int status, String body) throws IOException {
-        // fully consume the request body to avoid connection reset issues
-        exchange.getRequestBody().readAllBytes();
-        exchange.getResponseHeaders().set("Connection", "close");
-        exchange.getResponseHeaders().add("Content-Type", "application/json");
-        exchange.sendResponseHeaders(status, body.getBytes().length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(body.getBytes());
-        }
-        exchange.close();
+    @Test
+    void testCommitEventsError() throws Exception {
+        server.createContext("/org/topics/topic/subscriptions/sub/event-commits", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
+                sendJson(exchange, 500, "error");
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+
+        Assertions.assertThrows(RuntimeException.class, () ->
+            client.commitEvents(
+                "org",
+                "topic",
+                "sub",
+                List.of(UUID.randomUUID())));
+    }
+
+    @Test
+    void testConsumeEventsReadError() throws Exception {
+        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) {
+                sendJson(exchange, 500, "error");
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+
+        Assertions.assertThrows(RuntimeException.class, () ->
+            client.consumeEvents("org", "topic", "sub", 1, (events, commit) -> {}));
+    }
+
+    @Test
+    void testConsumeEventsCommitError() throws Exception {
+        String msg = """
+            [{
+                "id": "9f320609-0405-44a3-9042-953a353aa40c",
+                "data": {"msg": "hello"},
+                "createdAt": "2025-07-01T00:00:00Z"
+            }]
+            """;
+        server.createContext("/org/topics/topic/subscriptions/sub/events", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) {
+                sendJson(exchange, 200, msg);
+            }
+        });
+        server.createContext("/org/topics/topic/subscriptions/sub/event-commits", exchange -> {
+            if (exchange.getRequestMethod().equals("POST")) {
+                sendJson(exchange, 500, "error");
+            }
+        });
+
+        PubSubClient client = new PubSubClient(baseUrl);
+
+        Assertions.assertThrows(EventConsumerException.class, () ->
+            client.consumeEvents("org", "topic", "sub", 1, (events, commit) ->
+                commit.apply(List.of(events.get(0).id()))));
     }
 }
