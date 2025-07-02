@@ -63,3 +63,22 @@ consumer.start();
 consumer.close();
 ```
 
+## Running a Worker
+
+For worker-style applications you may want the consumer to keep polling until the
+JVM shuts down. A `CountDownLatch` can be used to block the main thread and
+ensure the consumer is closed gracefully:
+
+```java
+CountDownLatch latch = new CountDownLatch(1);
+EventConsumer consumer = new EventConsumer(client, handler, cfg, errHandler);
+
+Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    consumer.close();
+    latch.countDown();
+}));
+
+consumer.start();
+latch.await();
+```
+
