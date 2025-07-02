@@ -1,5 +1,7 @@
 package com.example.pubsubclient;
 
+import com.example.pubsubclient.exception.EventConsumerException;
+import com.example.pubsubclient.exception.EventPublishingException;
 import com.example.pubsubclient.model.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,84 +16,37 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
 
-public class PubSubClient {
+class PubSubClient {
     private final String baseUrl;
     private final HttpClient httpClient;
-    private final ObjectMapper mapper = new ObjectMapper()
-            .registerModule(new JavaTimeModule());
-
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+            
     public PubSubClient(String baseUrl) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.httpClient = HttpClient.newHttpClient();
     }
 
-    public void createOrganization(String name) throws IOException, InterruptedException {
-        Map<String, String> body = Map.of("name", name);
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/orgs"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
-                .build());
-    }
-
-    public Optional<UUID> getOrganizationId(String orgName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/orgs/" + orgName)).GET().build());
-        if (resp.statusCode() == 404) {
-            return Optional.empty();
-        }
-        return Optional.of(UUID.fromString(resp.body().replace("\"", "")));
-    }
-
-    public void deleteOrganization(String orgName) throws IOException, InterruptedException {
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/orgs/" + orgName)).DELETE().build());
-    }
-
-    public void createTopic(String orgName, String topicName) throws IOException, InterruptedException {
-        Map<String, String> body = Map.of("name", topicName);
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
-                .build());
-    }
-
-    public Topic getTopic(String orgName, String topicName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName)).GET().build());
-        if (resp.statusCode() == 404) {
-            throw new RuntimeException("Topic or organization not found");
-        }
-        return mapper.readValue(resp.body(), Topic.class);
-    }
-
-    public void deleteTopic(String orgName, String topicName) throws IOException, InterruptedException {
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName)).DELETE().build());
-    }
-
-    public void createSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
-        Map<String, String> body = Map.of("name", subscriptionName);
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
-                .build());
-    }
-
-    public Subscription getSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName)).GET().build());
-        if (resp.statusCode() == 404) {
-            throw new RuntimeException("Subscription, topic or organization not found");
-        }
-        return mapper.readValue(resp.body(), Subscription.class);
-    }
-
-    public void deleteSubscription(String orgName, String topicName, String subscriptionName) throws IOException, InterruptedException {
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/subscriptions/" + subscriptionName)).DELETE().build());
-    }
-
-    public int publishEvents(String orgName, String topicName, List<EventPublishRequest<?>> events) throws IOException, InterruptedException {
+    public <T> int publishEvents(String orgName, String topicName, List<EventPublishRequest<T>> events) throws IOException, InterruptedException {
         String body = mapper.writeValueAsString(events);
         HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/events"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build());
-        return Integer.parseInt(resp.body());
+
+        switch (resp.statusCode()) {
+            case 200:
+                return Integer.parseInt(resp.body());
+            case 204:
+                return 0;
+            case 400:
+                throw new EventPublishingException("Error on your request:" + resp.body());
+            case 404:
+                throw new EventPublishingException("Subscription, topic or organization not found");                
+            case 500:
+                throw new EventPublishingException("Internal Server Error");
+            default:
+                return 0;
+        }
     }
 
     public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize) throws IOException, InterruptedException {
@@ -100,13 +55,21 @@ public class PubSubClient {
             .GET()
             .header("Content-Type", "application/json")
             .build());
-        if (resp.statusCode() == 204) {
-            return List.of();
+        
+        switch (resp.statusCode()) {
+            case 200:
+                return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {});
+            case 204:
+                return List.of();
+            case 404:
+                throw new EventConsumerException("Subscription, topic or organization not found");
+            case 409:
+                throw new EventConsumerException("Conflict while reading events:s");
+            case 500:
+                throw new EventConsumerException("Internal Server Error");
+            default:
+                return List.of();
         }
-        if (resp.statusCode() == 404) {
-            throw new RuntimeException("Subscription, topic or organization not found");
-        }
-        return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {});
     }
 
     public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds) throws IOException, InterruptedException {
@@ -116,11 +79,26 @@ public class PubSubClient {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build());
-        return Integer.parseInt(resp.body());
+
+        switch (resp.statusCode()) {
+            case 200:
+                return Integer.parseInt(resp.body());
+            case 204:
+                return 0;
+            case 400:
+                throw new EventConsumerException("Error on your request:" + resp.body());
+            case 404:
+                throw new EventConsumerException("Subscription, topic or organization not found");            
+            case 500:
+                throw new EventConsumerException("Internal Server Error");
+            default:
+                return 0;
+        }
     }
 
     public void consumeEvents(String org, String topic, String sub, int batchSize, EventsHandler handler) throws Exception {
         List<EventResponse> events = readEvents(org, topic, sub, batchSize);
+
         if (events.isEmpty()) {
             return;
         }
@@ -128,7 +106,7 @@ public class PubSubClient {
             try {
                 return commitEvents(org, topic, sub, ids);
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new EventConsumerException(e);
             }
         };
         handler.handle(events, commitFn);

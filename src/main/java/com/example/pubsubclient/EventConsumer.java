@@ -10,13 +10,32 @@ import java.util.concurrent.TimeUnit;
  * provided {@link EventsHandler}. Users can start and stop the polling as
  * needed.
  */
-public class PollingConsumer implements AutoCloseable {
+public class EventConsumer implements AutoCloseable {
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-    private final PollingConsumerConfig config;
+    private final EventConsumerConfig config;
+    private final EventsHandler eventsHandler;
+    private final ErrorHandler errorHandler;
+    private final PubSubClient client;
+
     private ScheduledFuture<?> future;
 
-    public PollingConsumer(PollingConsumerConfig config) {
+    public EventConsumer(
+        PubSubClient client, 
+        EventsHandler eventsHandler, 
+        EventConsumerConfig config) {
+            this(client, eventsHandler, config, e -> {});
+        }
+
+    public EventConsumer(
+        PubSubClient client, 
+        EventsHandler eventsHandler, 
+        EventConsumerConfig config,
+        ErrorHandler errorHandler
+    ) {
         this.config = config;
+        this.client = client;
+        this.eventsHandler = eventsHandler;
+        this.errorHandler = errorHandler;
     }
 
     /** Start polling if not already running. */
@@ -26,14 +45,14 @@ public class PollingConsumer implements AutoCloseable {
         }
         future = executor.scheduleAtFixedRate(() -> {
             try {
-                config.client().consumeEvents(
+                this.client.consumeEvents(
                         config.org(),
                         config.topic(),
                         config.subscription(),
                         config.batchSize(),
-                        config.handler());
+                        eventsHandler);
             } catch (Exception e) {
-                // Print the error but keep polling
+                errorHandler.onError(e);
                 e.printStackTrace();
             }
         }, 0, config.intervalMillis(), TimeUnit.MILLISECONDS);
