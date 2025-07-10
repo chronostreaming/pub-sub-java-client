@@ -14,24 +14,24 @@ public class EventConsumer implements AutoCloseable {
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
     private final EventConsumerConfig config;
     private final EventsHandler eventsHandler;
-    private final ErrorHandler errorHandler;
+    private final ConsumerErrorHandler errorHandler;
     private final PubSubClient client;
 
     private ScheduledFuture<?> future;
 
     public EventConsumer(
-        PubSubClient client, 
-        EventsHandler eventsHandler, 
-        EventConsumerConfig config) {
-            this(client, eventsHandler, config, e -> {});
-        }
+            PubSubClient client,
+            EventsHandler eventsHandler,
+            EventConsumerConfig config) {
+        this(client, eventsHandler, config, (error) -> {
+        });
+    }
 
     public EventConsumer(
-        PubSubClient client, 
-        EventsHandler eventsHandler, 
-        EventConsumerConfig config,
-        ErrorHandler errorHandler
-    ) {
+            PubSubClient client,
+            EventsHandler eventsHandler,
+            EventConsumerConfig config,
+            ConsumerErrorHandler errorHandler) {
         this.config = config;
         this.client = client;
         this.eventsHandler = eventsHandler;

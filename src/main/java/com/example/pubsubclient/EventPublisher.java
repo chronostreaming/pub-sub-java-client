@@ -8,12 +8,19 @@ public class EventPublisher<T> {
 
     private final PubSubClient client;
     private final EventPublisherConfig config;
-    private final ErrorHandler errorHandler;
-    
-    public EventPublisher(EventPublisherConfig config, PubSubClient client, ErrorHandler errorHandler) {
+    private final PublishingErrorHandler<T> errorHandler;
+
+    public EventPublisher(EventPublisherConfig config, PubSubClient client, PublishingErrorHandler<T> errorHandler) {
         this.config = config;
         this.client = client;
         this.errorHandler = errorHandler;
+    }
+
+    public EventPublisher(EventPublisherConfig config, PubSubClient client) {
+        this.config = config;
+        this.client = client;
+        this.errorHandler = (error, events) -> {
+        };
     }
 
     public int publish(EventPublishRequest<T> eventRequest) {
@@ -23,9 +30,8 @@ public class EventPublisher<T> {
     public int publish(List<EventPublishRequest<T>> eventRequests) {
         try {
             return this.client.publishEvents(config.org(), config.topic(), eventRequests);
-        } catch(Exception e) {
-            errorHandler.onError(e);
-            e.printStackTrace();
+        } catch (Exception e) {
+            errorHandler.onError(e, eventRequests);
             return 0;
         }
     }

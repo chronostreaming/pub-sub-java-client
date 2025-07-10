@@ -1,6 +1,6 @@
 package com.example.pubsubclient;
 
 @FunctionalInterface
-public interface ErrorHandler {
+public interface ConsumerErrorHandler {
     void onError(Exception e);
 }
