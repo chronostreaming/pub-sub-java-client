@@ -47,7 +47,7 @@ public class EventPublisherTest {
         PubSubClient client = new PubSubClient(baseUrl);
         EventPublisherConfig cfg = new EventPublisherConfig("org", "topic", "sub");
         AtomicInteger errors = new AtomicInteger();
-        ErrorHandler errorHandler = e -> errors.incrementAndGet();
+        PublishingErrorHandler<String> errorHandler = (error, events) -> errors.incrementAndGet();
         EventPublisher<String> publisher = new EventPublisher<>(cfg, client, errorHandler);
 
         int result = publisher.publish(new EventPublishRequest<>("data"));
@@ -70,7 +70,7 @@ public class EventPublisherTest {
         PubSubClient client = new PubSubClient(baseUrl);
         EventPublisherConfig cfg = new EventPublisherConfig("org", "topic", "sub");
         AtomicInteger errors = new AtomicInteger();
-        ErrorHandler errorHandler = e -> errors.incrementAndGet();
+        PublishingErrorHandler<String> errorHandler = (error, events) -> errors.incrementAndGet();
         EventPublisher<String> publisher = new EventPublisher<>(cfg, client, errorHandler);
 
         int result = publisher.publish(new EventPublishRequest<>("data"));

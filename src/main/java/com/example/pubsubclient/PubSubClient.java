@@ -20,18 +20,20 @@ class PubSubClient {
     private final String baseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-            
+
     public PubSubClient(String baseUrl) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.httpClient = HttpClient.newHttpClient();
     }
 
-    public <T> int publishEvents(String orgName, String topicName, List<EventPublishRequest<T>> events) throws IOException, InterruptedException {
+    public <T> int publishEvents(String orgName, String topicName, List<EventPublishRequest<T>> events)
+            throws IOException, InterruptedException {
         String body = mapper.writeValueAsString(events);
-        HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/events"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build());
+        HttpResponse<String> resp = send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/" + orgName + "/topics/" + topicName + "/events"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                        .build());
 
         switch (resp.statusCode()) {
             case 200:
@@ -41,7 +43,7 @@ class PubSubClient {
             case 400:
                 throw new EventPublishingException("Error on your request:" + resp.body());
             case 404:
-                throw new EventPublishingException("Subscription, topic or organization not found");                
+                throw new EventPublishingException("Subscription, topic or organization not found");
             case 500:
                 throw new EventPublishingException("Internal Server Error");
             default:
@@ -49,16 +51,19 @@ class PubSubClient {
         }
     }
 
-    public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize) throws IOException, InterruptedException {
-        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events?batchSize=%d", baseUrl, orgName, topicName, subscriptionName, batchSize);
+    public List<EventResponse> readEvents(String orgName, String topicName, String subscriptionName, int batchSize)
+            throws IOException, InterruptedException {
+        String url = String.format("%s/%s/topics/%s/subscriptions/%s/events?batchSize=%d", baseUrl, orgName, topicName,
+                subscriptionName, batchSize);
         HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url))
-            .GET()
-            .header("Content-Type", "application/json")
-            .build());
-        
+                .GET()
+                .header("Content-Type", "application/json")
+                .build());
+
         switch (resp.statusCode()) {
             case 200:
-                return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {});
+                return mapper.readValue(resp.body(), new TypeReference<List<EventResponse>>() {
+                });
             case 204:
                 return List.of();
             case 404:
@@ -72,8 +77,10 @@ class PubSubClient {
         }
     }
 
-    public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds) throws IOException, InterruptedException {
-        String url = String.format("%s/%s/topics/%s/subscriptions/%s/event-commits", baseUrl, orgName, topicName, subscriptionName);
+    public int commitEvents(String orgName, String topicName, String subscriptionName, List<UUID> eventIds)
+            throws IOException, InterruptedException {
+        String url = String.format("%s/%s/topics/%s/subscriptions/%s/event-commits", baseUrl, orgName, topicName,
+                subscriptionName);
         String body = mapper.writeValueAsString(eventIds);
         HttpResponse<String> resp = send(HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
@@ -88,15 +95,16 @@ class PubSubClient {
             case 400:
                 throw new EventConsumerException("Error on your request:" + resp.body());
             case 404:
-                throw new EventConsumerException("Subscription, topic or organization not found");            
+                throw new EventConsumerException("Subscription, topic or organization not found");
             case 500:
-                throw new EventConsumerException("Internal Server Error");
+                throw new EventConsumerException("PubSub: Internal Server Error");
             default:
                 return 0;
         }
     }
 
-    public void consumeEvents(String org, String topic, String sub, int batchSize, EventsHandler handler) throws Exception {
+    public void consumeEvents(String org, String topic, String sub, int batchSize, EventsHandler handler)
+            throws Exception {
         List<EventResponse> events = readEvents(org, topic, sub, batchSize);
 
         if (events.isEmpty()) {
